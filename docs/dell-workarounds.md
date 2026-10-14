@@ -12,7 +12,9 @@ Upstream PRs [#229](https://github.com/didriksg/Crisp/pull/229),
 [#230](https://github.com/didriksg/Crisp/pull/230), and
 [#231](https://github.com/didriksg/Crisp/pull/231) are **closed and withdrawn**.
 Their descriptions disclose Codex assistance. Their remote contribution branches
-were deleted; the maintenance branch remains separate from upstream `main`.
+were deleted. The complete fork is maintained on `main` in
+[gbettineschi/Crisp](https://github.com/gbettineschi/Crisp/tree/main); upstream
+`didriksg/Crisp` is unchanged.
 No upstream acceptance is requested. Reopening contributions requires full CI and
 broader hardware/lifecycle validation, not just a successful local build.
 
@@ -143,14 +145,16 @@ fullscreen Spaces, and display combinations remain manual follow-up work.
 
 ## Maintenance and updates
 
-Keep changes on `maintenance/dell-display-fixes`; fetch and review upstream
-changes before merging and rebuilding. `./dev.sh` replaces the existing
+Keep changes on this fork’s `main`. Future updates are made here: fetch and
+review upstream changes, merge the chosen changes into this fork, run the checks,
+and rebuild locally. Do not update this fork through the official app updater. `./dev.sh` replaces the existing
 `/Applications/Crisp.app`, without creating a second application. Run `make check`
 with full Xcode, XcodeGen, and SwiftLint before publishing a contribution.
 Do not publish ignored `build/` diagnostics or machine preferences.
 
-Development builds disable automatic upstream updates by default, both in the
-bundle and persisted preferences. A manual upstream install still replaces the
+Automatic upstream update checks and installations are disabled on this Mac.
+Development builds preserve that policy by default, both in the bundle and
+persisted preferences. A manual upstream install still replaces the
 custom binary, and those disabled preferences survive replacement. To restore
 updater defaults during a development build, use `CRISP_DISABLE_UPDATES=0 ./dev.sh`.
 After installing an official upstream build, delete the two persisted overrides:
