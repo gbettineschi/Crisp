@@ -268,6 +268,11 @@ final class BrightnessService: @unchecked Sendable {
         softwareBrightnessLock.withLock { softwareBrightnessFactors[displayID] }
     }
 
+    /// Overlay dimming is already composited; don't multiply it into gamma too.
+    func currentGammaBrightness(for displayID: CGDirectDisplayID) -> Double? {
+        prefersSoftwareBrightness(for: displayID) ? nil : currentSoftwareBrightness(for: displayID)
+    }
+
     // MARK: - DDC Availability Cache
 
     /// Tracks whether hardware DDC is available for each external display.
@@ -282,6 +287,42 @@ final class BrightnessService: @unchecked Sendable {
     /// Per-display DDC max brightness value reported by the monitor.
     /// Used to denormalize 0–100% into the display's native DDC range.
     private var ddcMaxBrightness: [CGDirectDisplayID: UInt16] = [:]
+
+    /// Explicit per-panel fallback for transports that acknowledge DDC writes
+    /// without changing the monitor. Read once at launch to avoid switching
+    /// backends underneath an in-flight write; UUIDs survive display-ID changes.
+    private let forcedSoftwareBrightnessUUIDs = Set(
+        UserDefaults.standard.stringArray(forKey: "crisp.forceSoftwareBrightnessUUIDs") ?? []
+    )
+
+    private func prefersSoftwareBrightness(for displayID: CGDirectDisplayID) -> Bool {
+        guard !forcedSoftwareBrightnessUUIDs.isEmpty,
+              CGDisplayIsBuiltin(displayID) == 0,
+              let uuid = Self.displayUUIDString(for: displayID) else { return false }
+        return forcedSoftwareBrightnessUUIDs.contains(uuid)
+    }
+
+    /// Opt-in hardware-only SDR range: leave colour/gamma ownership to f.lux
+    /// and keep the hardware cursor at the same luminance as the image.
+    private let hardwareOnlyBrightnessUUIDs = Set(
+        UserDefaults.standard.stringArray(forKey: "crisp.hardwareOnlyBrightnessUUIDs") ?? []
+    )
+
+    private func prefersHardwareOnlyBrightness(for displayID: CGDirectDisplayID) -> Bool {
+        guard !hardwareOnlyBrightnessUUIDs.isEmpty,
+              CGDisplayIsBuiltin(displayID) == 0,
+              let uuid = Self.displayUUIDString(for: displayID) else { return false }
+        return hardwareOnlyBrightnessUUIDs.contains(uuid)
+    }
+
+    private func settleDDCSoftwareBrightness(_ percent: Double, for displayID: CGDirectDisplayID) {
+        let softwarePercent = !prefersHardwareOnlyBrightness(for: displayID) && percent < gammaBlendThreshold
+            ? percent / gammaBlendThreshold * 100.0 : 100.0
+        // Avoid resetting a colour app's gamma on every hardware brightness key.
+        if softwarePercent < 100 || (currentSoftwareBrightness(for: displayID) ?? 1) != 1 {
+            setSoftwareBrightness(softwarePercent, for: displayID)
+        }
+    }
 
     // MARK: - Public API
 
@@ -337,9 +378,7 @@ final class BrightnessService: @unchecked Sendable {
             }
             // DDC already known unavailable: nothing to read back from gamma
             // tables, so leave the value as-is.
-            let knownUnavailable: Bool = ddcAvailableLock.withLock {
-                ddcAvailable[displayID] == false
-            }
+            let knownUnavailable = isDDCAvailable(for: displayID) == false
             if knownUnavailable {
                 return
             }
@@ -441,7 +480,7 @@ final class BrightnessService: @unchecked Sendable {
             // (BrightnessBoostService.syncOverlay below); writing here too
             // would race it.
             if clamped <= 100 {
-                let currentStatus: Bool? = ddcAvailableLock.withLock { ddcAvailable[displayID] }
+                let currentStatus = isDDCAvailable(for: displayID)
 
                 if currentStatus == false {
                     // DDC known unavailable, go straight to software fallback
@@ -611,17 +650,10 @@ final class BrightnessService: @unchecked Sendable {
                 self.ddcOperationGeneration.isLatestRequest(token, for: displayID)
             }
             guard isLatest else { return }
-            if ddcStatus == nil {
+            if ddcStatus == nil && !self.prefersHardwareOnlyBrightness(for: displayID) {
                 self.setSoftwareBrightness(percent, for: displayID)
             } else if ddcStatus == true {
-                if percent < self.gammaBlendThreshold {
-                    self.setSoftwareBrightness(
-                        percent / self.gammaBlendThreshold * 100.0,
-                        for: displayID
-                    )
-                } else if let factor = self.currentSoftwareBrightness(for: displayID), factor < 1.0 {
-                    self.setSoftwareBrightness(100.0, for: displayID)
-                }
+                self.settleDDCSoftwareBrightness(percent, for: displayID)
             }
         }
         // Queue the visible preview before hardware work can complete and clear it.
@@ -736,10 +768,7 @@ final class BrightnessService: @unchecked Sendable {
                     && self.pendingDDCTarget[displayID] == nil
             }
             if settle {
-                let softwarePercent = target.percent < self.gammaBlendThreshold
-                    ? target.percent / self.gammaBlendThreshold * 100.0
-                    : 100.0
-                self.setSoftwareBrightness(softwarePercent, for: displayID)
+                self.settleDDCSoftwareBrightness(target.percent, for: displayID)
             }
             self.pumpDDCWrite(for: displayID, topology: target.token)
         }
@@ -819,7 +848,7 @@ final class BrightnessService: @unchecked Sendable {
                 BrightnessBoostService.shared.syncOverlay(for: display)
             }
         } else {
-            let currentStatus: Bool? = ddcAvailableLock.withLock { ddcAvailable[displayID] }
+            let currentStatus = isDDCAvailable(for: displayID)
 
             if currentStatus == false {
                 // Software (gamma) path. The transfer-table write is a
@@ -852,9 +881,10 @@ final class BrightnessService: @unchecked Sendable {
         }
     }
 
-    // MARK: - Software Brightness (Gamma Table Fallback)
+    // MARK: - Software Brightness
 
-    /// Applies brightness via gamma table for displays where DDC is unavailable:
+    /// Explicit software-only panels use a click-through dimming window so
+    /// f.lux can keep controlling colour. Other DDC fallbacks use a gamma table:
     /// a linear ramp from 0 to `factor` (5% floor, never fully black), scaled
     /// past 1.0 above 100% for the external boost region. See
     /// docs/brightness-notes.md (gamma and software brightness). Delegates to
@@ -864,6 +894,14 @@ final class BrightnessService: @unchecked Sendable {
         let factor = max(0.05, brightness / 100.0)
         softwareBrightnessLock.withLock { softwareBrightnessFactors[displayID] = factor }
         saveSoftwareBrightness(factor: factor, for: displayID)
+
+        if prefersSoftwareBrightness(for: displayID),
+           let uuid = Self.displayUUIDString(for: displayID) {
+            DispatchQueue.main.async {
+                SoftwareDimmingService.shared.setFactor(factor, for: displayID, uuid: uuid)
+            }
+            return
+        }
 
         if GammaService.shared.hasActiveAdjustment(for: displayID) {
             GammaService.shared.reapply(for: displayID)
@@ -895,6 +933,10 @@ final class BrightnessService: @unchecked Sendable {
     }
 
     func resetSoftwareBrightness(for displayID: CGDirectDisplayID) {
+        if prefersSoftwareBrightness(for: displayID) {
+            DispatchQueue.main.async { SoftwareDimmingService.shared.remove(for: displayID) }
+            return
+        }
         let size = 256
         let values = (0..<size).map { CGGammaValue($0) / CGGammaValue(size - 1) }
         var red = values
@@ -905,13 +947,15 @@ final class BrightnessService: @unchecked Sendable {
 
     /// See ddcAvailable for what nil/true/false mean.
     func isDDCAvailable(for displayID: CGDirectDisplayID) -> Bool? {
-        ddcAvailableLock.withLock { ddcAvailable[displayID] }
+        if prefersSoftwareBrightness(for: displayID) { return false }
+        return ddcAvailableLock.withLock { ddcAvailable[displayID] }
     }
 
     /// Returns a read-only snapshot of Crisp's current brightness route.
     @MainActor
     func brightnessBackend(for display: DisplayInfo) -> CrispControlBrightnessBackend {
         let displayID = display.displayID
+        if !display.hasNativeBrightness, prefersSoftwareBrightness(for: displayID) { return .software }
         let state = ddcAvailableLock.withLock {
             (hdrDimmedDisplays.contains(displayID), ddcAvailable[displayID])
         }
@@ -952,6 +996,7 @@ final class BrightnessService: @unchecked Sendable {
     /// Call this when a display is removed so stale state cannot pollute a reconnect.
     @MainActor
     func invalidateDDCState(for displayID: CGDirectDisplayID) {
+        SoftwareDimmingService.shared.remove(for: displayID)
         invalidateDDCTopology(for: [displayID])
         ddcAvailableLock.withLock {
             // Display IDs are reused: without this, HDR software-dimming

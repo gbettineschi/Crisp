@@ -142,7 +142,7 @@ final class GammaService: @unchecked Sendable {
     /// reset. Software dimming shares the table, so a dimmed display gets its ramp back.
     func resetSingleDisplay(_ displayID: CGDirectDisplayID) {
         _ = adjustmentsLock.withLock { activeAdjustments.removeValue(forKey: displayID) }
-        if let factor = BrightnessService.shared.currentSoftwareBrightness(for: displayID) {
+        if let factor = BrightnessService.shared.currentGammaBrightness(for: displayID) {
             BrightnessService.shared.setSoftwareBrightness(factor * 100, for: displayID)
             return
         }
@@ -289,7 +289,7 @@ final class GammaService: @unchecked Sendable {
         var p = channelParams(for: adj)
         // Incorporate software brightness factor so BrightnessService and GammaService
         // do not overwrite each other's transfer function.
-        let brightnessFactor = max(0.05, BrightnessService.shared.currentSoftwareBrightness(for: displayID) ?? 1.0)
+        let brightnessFactor = max(0.05, BrightnessService.shared.currentGammaBrightness(for: displayID) ?? 1.0)
         p.rHi *= brightnessFactor
         p.gHi *= brightnessFactor
         p.bHi *= brightnessFactor
@@ -427,7 +427,7 @@ final class GammaService: @unchecked Sendable {
 
         var p = channelParams(for: adj)
         // Incorporate software brightness factor, matching applyFormula behaviour.
-        let brightnessFactor = max(0.05, BrightnessService.shared.currentSoftwareBrightness(for: displayID) ?? 1.0)
+        let brightnessFactor = max(0.05, BrightnessService.shared.currentGammaBrightness(for: displayID) ?? 1.0)
         p.rHi *= brightnessFactor
         p.gHi *= brightnessFactor
         p.bHi *= brightnessFactor
