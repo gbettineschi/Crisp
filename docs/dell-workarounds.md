@@ -68,6 +68,8 @@ screen. “All displays” and selected-display routing are unchanged.
 The regression harness `scripts/check-brightness-routing.swift` fails on the
 old direct-only lookup and passes eight routing cases with the fix. Equivalent
 XCTest coverage lives in `CrispTests/BrightnessDisplayRoutingTests.swift`.
+After refreshing the rebuilt app’s Accessibility grant, the user confirmed
+that brightness keys now target the Dell with the pointer on it.
 
 ## Checks
 
@@ -116,3 +118,16 @@ forced-software array and clear its saved `crisp.softBrightness.uuid.<UUID>` to
 Ad-hoc signing changes the app identity on rebuild and may require refreshing
 Crisp's existing Accessibility grant for brightness keys. A stable local code
 signing identity named `Crisp Dev` avoids that repeated step; see `dev.sh`.
+
+## Upstream contributions
+
+The complete local build is maintained on `maintenance/dell-display-fixes` in
+[gbettineschi/Crisp](https://github.com/gbettineschi/Crisp/tree/maintenance/dell-display-fixes).
+Independent draft PRs target upstream `main`:
+
+- [#229: HDMI bridge DDC transport](https://github.com/didriksg/Crisp/pull/229)
+- [#230: Mirror-aware brightness keys](https://github.com/didriksg/Crisp/pull/230)
+- [#231: Mirrored cursor refresh](https://github.com/didriksg/Crisp/pull/231)
+
+These PRs exclude the experimental Dell modes and local brightness policies.
+Draft status reflects the incomplete full CI/manual coverage described above.
