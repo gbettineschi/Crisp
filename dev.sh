@@ -81,7 +81,11 @@ for key in SUFeedURL SUPublicEDKey SUEnableAutomaticChecks SUVerifyUpdateBeforeE
 done
 /usr/libexec/PlistBuddy -c "Add :SUFeedURL string https://crispmac.app/appcast.xml" "$PLIST"
 /usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string 3UT7wZoXDzrAhwCMVS3DoPt2lcya9H/cvlyXliuPuhM=" "$PLIST"
-/usr/libexec/PlistBuddy -c "Add :SUEnableAutomaticChecks bool true" "$PLIST"
+# Development builds carry local changes that upstream updates would overwrite.
+/usr/libexec/PlistBuddy -c "Add :SUEnableAutomaticChecks bool false" "$PLIST"
+BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$PLIST")
+defaults write "$BUNDLE_ID" SUEnableAutomaticChecks -bool false
+defaults write "$BUNDLE_ID" SUAutomaticallyUpdate -bool false
 /usr/libexec/PlistBuddy -c "Add :SUVerifyUpdateBeforeExtraction bool true" "$PLIST"
 /usr/libexec/PlistBuddy -c "Add :SURequireSignedFeed bool true" "$PLIST"
 xattr -cr "$APP"
