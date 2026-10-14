@@ -13,6 +13,7 @@ class ArrangementService {
     /// Used by preset restore, which writes each display's saved absolute origin.
     @discardableResult
     func setPosition(x: Int, y: Int, for displayID: CGDirectDisplayID) async -> Bool {
+        await DefaultDisplaySetupService.shared.prepareForUserChange()
         PresetService.shared.noteManualChange()
         return await applyOrigins([(displayID, x, y)])
     }
@@ -24,6 +25,7 @@ class ArrangementService {
     @discardableResult
     func setPosition(x: Int, y: Int, for displayID: CGDirectDisplayID,
                      among displays: [DisplayInfo]) async -> Bool {
+        await DefaultDisplaySetupService.shared.prepareForUserChange()
         PresetService.shared.noteManualChange()
 
         // Proposed origins: everyone keeps their spot except the dragged display.
@@ -48,6 +50,7 @@ class ArrangementService {
     /// target and old-main origins (the previous approach) could overlap a wider display.
     @discardableResult
     func setAsMainDisplay(_ targetID: CGDirectDisplayID, among displays: [DisplayInfo]) async -> Bool {
+        await DefaultDisplaySetupService.shared.prepareForUserChange()
         guard let target = displays.first(where: { $0.displayID == targetID }),
               !target.isMain else {
             return false
@@ -62,19 +65,35 @@ class ArrangementService {
         return await applyOrigins(origins)
     }
 
-    /// Applies origins in one atomic transaction inside `CGHelpers.runWithTimeout` so
-    /// `CGCompleteDisplayConfiguration` cannot block WindowServer IPC forever. Every caller is
-    /// a user action, so it commits `.permanently`: with `.forSession` macOS put its own
-    /// stored arrangement back at the next login (#193).
-    private func applyOrigins(_ origins: [(id: CGDirectDisplayID, x: Int, y: Int)]) async -> Bool {
-        await CGHelpers.runWithTimeout(seconds: 10, fallback: false) {
+    /// Default restoration positions every desktop in one transaction after resolution changes.
+    func restorePositions(_ origins: [(id: CGDirectDisplayID, x: Int, y: Int)]) async -> Bool {
+        await applyOrigins(origins, scope: .forSession)
+    }
+
+    /// Physical user arrangements are permanent; virtual layouts are restored from our saved default.
+    private func applyOrigins(_ proposed: [(id: CGDirectDisplayID, x: Int, y: Int)],
+                              scope: CGConfigureOption = .permanently) async -> Bool {
+        let origins = proposed.map { origin in
+            let source = CGDisplayMirrorsDisplay(origin.id)
+            return (id: source == kCGNullDirectDisplay ? origin.id : source, x: origin.x, y: origin.y)
+        }
+        guard !origins.isEmpty, Set(origins.map(\.id)).count == origins.count else { return false }
+        // Virtual identities cannot be committed as permanent hardware configuration.
+        let commitScope: CGConfigureOption = origins.contains {
+            VirtualDisplayService.shared.isVirtualDisplay($0.id)
+        } ? .forSession : scope
+        return await CGHelpers.runWithTimeout(seconds: 10, fallback: false) {
             var config: CGDisplayConfigRef?
             guard CGBeginDisplayConfiguration(&config) == .success,
                   let cfg = config else { return false }
             for o in origins {
-                CGConfigureDisplayOrigin(cfg, o.id, Int32(o.x), Int32(o.y))
+                guard let x = Int32(exactly: o.x), let y = Int32(exactly: o.y),
+                      CGConfigureDisplayOrigin(cfg, o.id, x, y) == .success else {
+                    CGCancelDisplayConfiguration(cfg)
+                    return false
+                }
             }
-            let result = CGCompleteDisplayConfiguration(cfg, .permanently)
+            let result = CGCompleteDisplayConfiguration(cfg, commitScope)
             if result != .success {
                 CGCancelDisplayConfiguration(cfg)
                 return false

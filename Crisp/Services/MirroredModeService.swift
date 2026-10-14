@@ -152,6 +152,13 @@ final class MirroredModeService: ObservableObject {
         guard !display.isBuiltin else { return [] }
         let (nativeW, nativeH) = display.nativeResolution
         guard nativeW > 0, nativeH > 0 else { return [] }
+        // Experimental above-native workspace sizes for landscape 1080p Dell panels.
+        // These are logical sizes; the virtual display needs twice the pixels for HiDPI.
+        if display.vendorNumber == 4268, nativeW == 1920, nativeH == 1080 {
+            return [(width: 2048, height: 1152),
+                    (width: 2304, height: 1296),
+                    (width: 2560, height: 1440)]
+        }
         // ponytail: ultrawide-only (21:9+) until a 16:9 4K/5K panel is verified with the
         // mirror; also capped, untested. Drop this guard to widen.
         guard Double(nativeW) / Double(nativeH) >= 2.0 else { return [] }
@@ -218,8 +225,6 @@ final class MirroredModeService: ObservableObject {
         let mm = CGDisplayScreenSize(display.displayID)
         descriptor.sizeInMillimeters = mm.width > 0 ? mm
             : CGSize(width: Double(nativeW) / 110.0 * 25.4, height: Double(nativeH) / 110.0 * 25.4)
-        descriptor.maxPixelsWide = UInt32(nativeW * 2)
-        descriptor.maxPixelsHigh = UInt32(nativeH * 2)
         // System UI lists the virtual while mirrored (Control Center, first-run Extend
         // picker); a distinct name reads as a feature, a duplicate "Name (2)" as a glitch.
         descriptor.name = String(localized: "\(display.name) (Crisp)")
@@ -234,6 +239,13 @@ final class MirroredModeService: ObservableObject {
         if !stops.contains(where: { $0.width == mustInclude.width && $0.height == mustInclude.height }) {
             stops.append((width: mustInclude.width, height: mustInclude.height))
         }
+
+        // Above-native stops must fit in the descriptor as well as the mode list.
+        // In particular, looks-like 2560x1440 requires a 5120x2880 backing.
+        let maxLogicalW = max(nativeW, stops.map(\.width).max() ?? nativeW)
+        let maxLogicalH = max(nativeH, stops.map(\.height).max() ?? nativeH)
+        descriptor.maxPixelsWide = UInt32(maxLogicalW * 2)
+        descriptor.maxPixelsHigh = UInt32(maxLogicalH * 2)
 
         // One rate only (the panel's own, 60 when unreadable): a second would push the
         // dense ladder past the object ceiling. See docs/display-notes.md (MirroredModeService).

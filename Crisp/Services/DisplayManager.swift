@@ -237,8 +237,8 @@ class DisplayManager: ObservableObject {
         // Kept displays: only bounds/main flag, no DDC probe.
         let keptIDs = currentIDs.intersection(newIDSet)
         for display in updatedDisplays where keptIDs.contains(display.displayID) {
-            display.bounds = CGDisplayBounds(display.displayID)
-            display.isMain = CGDisplayIsMain(display.displayID) != 0
+            display.bounds = CGDisplayBounds(display.renderingDisplayID)
+            display.isMain = CGDisplayIsMain(display.renderingDisplayID) != 0 || CGDisplayIsMain(display.displayID) != 0
             // Reconfigurations can reset the transfer table macOS-side, losing gamma
             // adjustments (issue #25); no-op when there's none to restore.
             GammaService.shared.reapply(for: display.displayID)
@@ -252,6 +252,8 @@ class DisplayManager: ObservableObject {
         // A physical unplug bypasses disconnect()'s last-screen guard. See docs/display-notes.md
         // (restoreIfNoActiveDisplay).
         PhysicalDisplayToggleService.shared.restoreIfNoActiveDisplay()
+
+        DefaultDisplaySetupService.shared.displaysChanged(in: self)
 
         BrightnessService.shared.startObservingNativeBrightness(for: displays)
     }
@@ -297,10 +299,11 @@ class DisplayManager: ObservableObject {
     /// adding or removing DisplayInfo objects.
     func refreshExistingDisplayModes() {
         for display in displays {
-            display.isMain = CGDisplayIsMain(display.displayID) != 0
+            let renderingID = display.renderingDisplayID
+            display.isMain = CGDisplayIsMain(renderingID) != 0 || CGDisplayIsMain(display.displayID) != 0
             Task {
                 let newMode = await Task.detached(priority: .userInitiated) {
-                    DisplayMode.currentMode(for: display.displayID)
+                    DisplayMode.currentMode(for: renderingID)
                 }.value
                 display.currentDisplayMode = newMode
             }

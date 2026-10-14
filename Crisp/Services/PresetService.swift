@@ -182,6 +182,8 @@ final class PresetService: ObservableObject, @unchecked Sendable {
     /// Applies a preset: for each entry, finds the matching display and applies settings.
     func applyPreset(_ preset: DisplayPreset) async {
         guard !isApplying else { return }
+        await DefaultDisplaySetupService.shared.prepareForUserChange()
+        guard !isApplying else { return }
         isApplying = true
         applyingPresetID = preset.id
         defer {

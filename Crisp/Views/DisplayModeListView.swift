@@ -220,6 +220,7 @@ final class DisplayModeController: ObservableObject {
         isSwitching = true
         let displayID = display.displayID
         Task { @MainActor in
+            await DefaultDisplaySetupService.shared.prepareForUserChange()
             var success: Bool
             if mode.id < 0 {
                 // Synthetic beyond-cap stop (#65, negative id): no CG mode exists
@@ -321,8 +322,10 @@ final class DisplayModeController: ObservableObject {
         // WindowServer's per-display cap has no real HiDPI mode for; switchTo routes those
         // to MirroredModeService instead of the CG apply path.
         // Measured: see docs/ui-notes.md (DisplayModeListView: beyond-cap synthetic stops)
-        if smoothModesPresent {
-            ladder += MirroredModeService.beyondCapStops(for: display)
+        let mirroredStops = MirroredModeService.beyondCapStops(for: display)
+        // Above-native workspaces do not depend on a privileged Smooth Scaling override.
+        if smoothModesPresent || mirroredStops.contains(where: { $0.width > nativeW }) {
+            ladder += mirroredStops
                 .map { DisplayMode(id: -Int32($0.width), width: $0.width, height: $0.height,
                                    pixelWidth: $0.width * 2, pixelHeight: $0.height * 2,
                                    refreshRate: 0, isHiDPI: true, isNative: false) }

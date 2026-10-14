@@ -7,6 +7,7 @@ import ImageIO
 /// Display" lives in MainDisplayView.
 struct ArrangementView: View {
     @EnvironmentObject var displayManager: DisplayManager
+    @ObservedObject private var defaultSetup = DefaultDisplaySetupService.shared
     @State private var draggedID: CGDirectDisplayID?
     @State private var dragOffset: CGSize = .zero
     @State private var dragError: String?
@@ -34,6 +35,43 @@ struct ArrangementView: View {
             }
             .frame(height: canvasHeight)
             .onDisappear { DisplayIdentifierOverlay.hide() }
+
+            Button {
+                Task { await defaultSetup.saveCurrent(in: displayManager) }
+            } label: {
+                Text("Save current setup as default")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(defaultSetup.isRestoring || draggedID != nil || displayManager.displays.isEmpty)
+
+            if defaultSetup.savedSetup != nil {
+                HStack {
+                    Button("Restore default") { defaultSetup.requestRestore(in: displayManager) }
+                        .disabled(defaultSetup.isRestoring || !defaultSetup.hasMatchingDefault(in: displayManager))
+                    Spacer()
+                    Button("Clear default") { Task { await defaultSetup.clear() } }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                Text("Applies on reconnect or wake when the same displays are present.")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if defaultSetup.isRestoring {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("Restoring saved default…").font(.caption2)
+                }
+            } else if let status = defaultSetup.status {
+                Text(status)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             if let err = dragError {
                 Text(err)
@@ -113,7 +151,7 @@ struct ArrangementView: View {
         let displays = displayManager.displays
         guard !displays.isEmpty else { return [:] }
 
-        let allBounds = displays.map { CGDisplayBounds($0.displayID) }
+        let allBounds = displays.map { CGDisplayBounds($0.renderingDisplayID) }
         let minX = allBounds.map { $0.minX }.min() ?? 0
         let minY = allBounds.map { $0.minY }.min() ?? 0
         let maxX = allBounds.map { $0.maxX }.max() ?? 1
@@ -135,7 +173,7 @@ struct ArrangementView: View {
 
         var result: [CGDirectDisplayID: CGRect] = [:]
         for display in displays {
-            let bounds = CGDisplayBounds(display.displayID)
+            let bounds = CGDisplayBounds(display.renderingDisplayID)
             let x = offsetX + (bounds.minX - minX) * scale
             let y = offsetY + (bounds.minY - minY) * scale
             let w = bounds.width * scale
@@ -147,7 +185,7 @@ struct ArrangementView: View {
 
     /// Scale factor mapping screen space to canvas space (same math as computeLayout).
     private func canvasScale(canvasSize: CGSize) -> CGFloat {
-        let allBounds = displayManager.displays.map { CGDisplayBounds($0.displayID) }
+        let allBounds = displayManager.displays.map { CGDisplayBounds($0.renderingDisplayID) }
         guard !allBounds.isEmpty else { return 0 }
         let minX = allBounds.map { $0.minX }.min() ?? 0
         let minY = allBounds.map { $0.minY }.min() ?? 0
@@ -162,11 +200,11 @@ struct ArrangementView: View {
 
     /// Proposed screen-space rect for the dragged display, snapped to the other displays.
     private func snappedScreenRect(for display: DisplayInfo, translation: CGSize, scale: CGFloat) -> CGRect {
-        let proposed = CGDisplayBounds(display.displayID)
+        let proposed = CGDisplayBounds(display.renderingDisplayID)
             .offsetBy(dx: translation.width / scale, dy: translation.height / scale)
         let others = displayManager.displays
             .filter { $0.displayID != display.displayID }
-            .map { CGDisplayBounds($0.displayID) }
+            .map { CGDisplayBounds($0.renderingDisplayID) }
         // Resolve overlap first, then edge-snap: displays can never overlap,
         // matching the native Arrange Displays sheet.
         let resolved = resolveOverlaps(proposed, others: others)
@@ -177,7 +215,7 @@ struct ArrangementView: View {
     private func snappedCanvasOffset(for display: DisplayInfo, translation: CGSize, canvasSize: CGSize) -> CGSize {
         let scale = canvasScale(canvasSize: canvasSize)
         guard scale > 0 else { return translation }
-        let bounds = CGDisplayBounds(display.displayID)
+        let bounds = CGDisplayBounds(display.renderingDisplayID)
         let snapped = snappedScreenRect(for: display, translation: translation, scale: scale)
         return CGSize(width: (snapped.minX - bounds.minX) * scale,
                       height: (snapped.minY - bounds.minY) * scale)

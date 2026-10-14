@@ -291,6 +291,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 // The refresh also re-disconnects any display macOS re-enabled on wake:
                 // it runs reconcile, which puts a remembered disconnect back.
                 dm.refreshDisplays()
+                DefaultDisplaySetupService.shared.requestRestore(in: dm)
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 // WindowServer keeps settling for seconds after wake: ICC restore and
                 // link retraining can clobber a freshly applied transfer table (#25).
@@ -303,7 +304,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                         BrightnessService.shared.reapplySoftwareBrightnessIfNeeded(for: display)
                         GammaService.shared.reapplyIfNeeded(for: display)
                         // Re-apply any custom resolution that macOS may have reset on wake
-                        ResolutionService.shared.restoreModeAfterWakeIfNeeded(for: display.displayID)
+                        if !DefaultDisplaySetupService.shared.hasMatchingDefault(in: dm) {
+                            ResolutionService.shared.restoreModeAfterWakeIfNeeded(for: display.displayID)
+                        }
                     }
                     // Once an external is back after a full wake, toggle True Tone so macOS
                     // recomputes it with that display present (issue #131). Once per wake,

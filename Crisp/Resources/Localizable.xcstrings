@@ -1,6 +1,21 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Save current setup as default" : {
+
+    },
+    "Restore default" : {
+
+    },
+    "Clear default" : {
+
+    },
+    "Applies on reconnect or wake when the same displays are present." : {
+
+    },
+    "Restoring saved default…" : {
+
+    },
     "" : {
 
     },
