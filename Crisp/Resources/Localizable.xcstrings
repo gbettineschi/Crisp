@@ -1,6 +1,30 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Could not capture this setup. Use separate desktops for physical displays." : {
+
+    },
+    "Could not capture the display positions." : {
+
+    },
+    "Default saved: resolution, arrangement and main display." : {
+
+    },
+    "Could not save this setup. Wait for the displays to settle and try again." : {
+
+    },
+    "Default cleared. The current display settings are unchanged." : {
+
+    },
+    "Saved default restored." : {
+
+    },
+    "Could not restore the default. Check the displays, then press Restore default." : {
+
+    },
+    "macOS is still applying a display change. Try again shortly." : {
+
+    },
     "Save current setup as default" : {
 
     },

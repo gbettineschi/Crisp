@@ -181,9 +181,7 @@ final class PresetService: ObservableObject, @unchecked Sendable {
 
     /// Applies a preset: for each entry, finds the matching display and applies settings.
     func applyPreset(_ preset: DisplayPreset) async {
-        guard !isApplying else { return }
-        await DefaultDisplaySetupService.shared.prepareForUserChange()
-        guard !isApplying else { return }
+        guard await prepareForPreset() else { return }
         isApplying = true
         applyingPresetID = preset.id
         defer {
@@ -265,6 +263,12 @@ final class PresetService: ObservableObject, @unchecked Sendable {
 
         activePresetID = preset.id
         // DisplayManager is not a singleton; callers with a DisplayManager ref can call refreshDisplays().
+    }
+
+    private func prepareForPreset() async -> Bool {
+        guard !isApplying else { return false }
+        guard await DefaultDisplaySetupService.shared.prepareForUserChange() else { return false }
+        return !isApplying
     }
 
     /// Turns displays on and off before the other settings (#211), so those land on the

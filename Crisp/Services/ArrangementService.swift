@@ -13,7 +13,7 @@ class ArrangementService {
     /// Used by preset restore, which writes each display's saved absolute origin.
     @discardableResult
     func setPosition(x: Int, y: Int, for displayID: CGDirectDisplayID) async -> Bool {
-        await DefaultDisplaySetupService.shared.prepareForUserChange()
+        guard await DefaultDisplaySetupService.shared.prepareForUserChange() else { return false }
         PresetService.shared.noteManualChange()
         return await applyOrigins([(displayID, x, y)])
     }
@@ -25,12 +25,13 @@ class ArrangementService {
     @discardableResult
     func setPosition(x: Int, y: Int, for displayID: CGDirectDisplayID,
                      among displays: [DisplayInfo]) async -> Bool {
-        await DefaultDisplaySetupService.shared.prepareForUserChange()
+        guard await DefaultDisplaySetupService.shared.prepareForUserChange() else { return false }
         PresetService.shared.noteManualChange()
 
-        // Proposed origins: everyone keeps their spot except the dragged display.
+        // Moving one member moves its whole mirror group.
+        let draggedSource = displays.first(where: { $0.displayID == displayID })?.renderingDisplayID
         var origins: [(id: CGDirectDisplayID, x: Int, y: Int)] = displays.map { d in
-            d.displayID == displayID
+            d.renderingDisplayID == draggedSource
                 ? (d.displayID, x, y)
                 : (d.displayID, Int(d.bounds.origin.x), Int(d.bounds.origin.y))
         }
@@ -50,7 +51,7 @@ class ArrangementService {
     /// target and old-main origins (the previous approach) could overlap a wider display.
     @discardableResult
     func setAsMainDisplay(_ targetID: CGDirectDisplayID, among displays: [DisplayInfo]) async -> Bool {
-        await DefaultDisplaySetupService.shared.prepareForUserChange()
+        guard await DefaultDisplaySetupService.shared.prepareForUserChange() else { return false }
         guard let target = displays.first(where: { $0.displayID == targetID }),
               !target.isMain else {
             return false
@@ -73,11 +74,11 @@ class ArrangementService {
     /// Physical user arrangements are permanent; virtual layouts are restored from our saved default.
     private func applyOrigins(_ proposed: [(id: CGDirectDisplayID, x: Int, y: Int)],
                               scope: CGConfigureOption = .permanently) async -> Bool {
-        let origins = proposed.map { origin in
+        let mapped = proposed.map { origin in
             let source = CGDisplayMirrorsDisplay(origin.id)
             return (id: source == kCGNullDirectDisplay ? origin.id : source, x: origin.x, y: origin.y)
         }
-        guard !origins.isEmpty, Set(origins.map(\.id)).count == origins.count else { return false }
+        guard let origins = DisplayOrigins.coalesced(mapped) else { return false }
         // Virtual identities cannot be committed as permanent hardware configuration.
         let commitScope: CGConfigureOption = origins.contains {
             VirtualDisplayService.shared.isVirtualDisplay($0.id)

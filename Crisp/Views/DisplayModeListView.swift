@@ -220,7 +220,11 @@ final class DisplayModeController: ObservableObject {
         isSwitching = true
         let displayID = display.displayID
         Task { @MainActor in
-            await DefaultDisplaySetupService.shared.prepareForUserChange()
+            guard await DefaultDisplaySetupService.shared.prepareForUserChange() else {
+                isSwitching = false
+                done()
+                return
+            }
             var success: Bool
             if mode.id < 0 {
                 // Synthetic beyond-cap stop (#65, negative id): no CG mode exists

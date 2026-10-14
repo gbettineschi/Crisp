@@ -13,6 +13,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
 APP="${CRISP_APP:-/Applications/Crisp.app}"
+CRISP_DISABLE_UPDATES="${CRISP_DISABLE_UPDATES:-1}"
+case "$CRISP_DISABLE_UPDATES" in
+    0|1) ;;
+    *) echo "error: CRISP_DISABLE_UPDATES must be 0 or 1" >&2; exit 1 ;;
+esac
 
 if [ ! -d "$APP" ]; then
     echo "error: $APP not found." >&2
@@ -82,10 +87,18 @@ done
 /usr/libexec/PlistBuddy -c "Add :SUFeedURL string https://crispmac.app/appcast.xml" "$PLIST"
 /usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string 3UT7wZoXDzrAhwCMVS3DoPt2lcya9H/cvlyXliuPuhM=" "$PLIST"
 # Development builds carry local changes that upstream updates would overwrite.
-/usr/libexec/PlistBuddy -c "Add :SUEnableAutomaticChecks bool false" "$PLIST"
 BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$PLIST")
-defaults write "$BUNDLE_ID" SUEnableAutomaticChecks -bool false
-defaults write "$BUNDLE_ID" SUAutomaticallyUpdate -bool false
+if [ "$CRISP_DISABLE_UPDATES" = 1 ]; then
+    /usr/libexec/PlistBuddy -c "Add :SUEnableAutomaticChecks bool false" "$PLIST"
+    defaults write "$BUNDLE_ID" SUEnableAutomaticChecks -bool false
+    defaults write "$BUNDLE_ID" SUAutomaticallyUpdate -bool false
+    echo "==> Upstream automatic updates disabled for this fork (including persisted preferences)"
+else
+    /usr/libexec/PlistBuddy -c "Add :SUEnableAutomaticChecks bool true" "$PLIST"
+    defaults delete "$BUNDLE_ID" SUEnableAutomaticChecks 2>/dev/null || true
+    defaults delete "$BUNDLE_ID" SUAutomaticallyUpdate 2>/dev/null || true
+    echo "==> Upstream updater defaults restored; updates can replace local changes"
+fi
 /usr/libexec/PlistBuddy -c "Add :SUVerifyUpdateBeforeExtraction bool true" "$PLIST"
 /usr/libexec/PlistBuddy -c "Add :SURequireSignedFeed bool true" "$PLIST"
 xattr -cr "$APP"

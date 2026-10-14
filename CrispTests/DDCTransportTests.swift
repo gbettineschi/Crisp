@@ -13,9 +13,9 @@ final class DDCTransportTests: XCTestCase {
 
     private func select(_ standard: [UInt8]?, _ bridge: [UInt8]?) -> (UInt32, [UInt32]) {
         var reads: [UInt32] = []
-        let address = DDCTransport.select { address in
-            reads.append(address)
-            return address == DDCTransport.standard ? standard : bridge
+        let address = DDCTransport.select(standardReply: standard) {
+            reads.append(0xB7)
+            return bridge
         }
         return (address.address, reads)
     }
@@ -24,21 +24,21 @@ final class DDCTransportTests: XCTestCase {
         for ordinary in [reply(), nil, [0, 0, 0]] {
             let (address, reads) = select(ordinary, reply())
             XCTAssertEqual(address, 0x37)
-            XCTAssertEqual(reads, [0x37])
+            XCTAssertEqual(reads, [])
         }
     }
 
     func testNullReplySelectsVerifiedBridge() {
         let (address, reads) = select(null, reply())
         XCTAssertEqual(address, 0xB7)
-        XCTAssertEqual(reads, [0x37, 0xB7])
+        XCTAssertEqual(reads, [0xB7])
     }
 
     func testFailedNegotiationRemainsRetryable() {
-        let failed = DDCTransport.select { $0 == 0x37 ? null : nil }
+        let failed = DDCTransport.select(standardReply: null) { nil }
         XCTAssertEqual(failed.address, 0x37)
         XCTAssertFalse(failed.verified)
-        let retry = DDCTransport.select { $0 == 0x37 ? null : reply() }
+        let retry = DDCTransport.select(standardReply: null) { reply() }
         XCTAssertEqual(retry.address, 0xB7)
         XCTAssertTrue(retry.verified)
     }
@@ -51,7 +51,7 @@ final class DDCTransportTests: XCTestCase {
         for response in invalid {
             let (address, reads) = select(null, response)
             XCTAssertEqual(address, 0x37)
-            XCTAssertEqual(reads, [0x37, 0xB7])
+            XCTAssertEqual(reads, [0xB7])
         }
     }
 }

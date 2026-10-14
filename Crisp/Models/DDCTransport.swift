@@ -10,13 +10,15 @@ enum DDCTransport {
         let verified: Bool
     }
 
-    static func select(readBrightness: (UInt32) -> [UInt8]?) -> Selection {
-        guard let reply = readBrightness(standard) else {
+    // Consume a response already obtained by the normal, quarantine-aware read
+    // path. Ordinary and failed reads must not trigger another I2C operation.
+    static func select(standardReply: [UInt8]?, readBridge: () -> [UInt8]?) -> Selection {
+        guard let reply = standardReply else {
             return Selection(address: standard, verified: false)
         }
         if validBrightnessReply(reply) { return Selection(address: standard, verified: true) }
         guard reply.starts(with: [0x6E, 0x80, 0xBE]),
-              let bridged = readBrightness(hdmiBridge), validBrightnessReply(bridged) else {
+              let bridged = readBridge(), validBrightnessReply(bridged) else {
             return Selection(address: standard, verified: false)
         }
         return Selection(address: hdmiBridge, verified: true)

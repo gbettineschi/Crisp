@@ -422,6 +422,15 @@ final class BrightnessBoostService {
         return d.value(forKey: "preferHDRModes") as? Bool
     }
 
+    /// Unlike HDR-toggle eligibility, missing capability information is unknown,
+    /// not evidence that it is safe to discard a saved software brightness.
+    func isConfirmedSDR(_ display: DisplayInfo) -> Bool {
+        guard uniqueDisplayUUID(for: display)?.caseInsensitiveCompare(display.displayUUID) == .orderedSame,
+              let panel = mpDisplay(for: display.displayID),
+              let supportsHDR = panel.value(forKey: "hasHDRModes") as? Bool else { return false }
+        return !supportsHDR || (panel.value(forKey: "preferHDRModes") as? Bool) == false
+    }
+
     func mutationHDRState(for display: DisplayInfo, expectedUUID: String) -> Bool? {
         guard uniqueDisplayUUID(for: display)?.caseInsensitiveCompare(expectedUUID) == .orderedSame,
               isEligibleForHDRToggle(display),

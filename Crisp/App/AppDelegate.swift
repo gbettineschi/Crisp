@@ -262,7 +262,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             NSWorkspace.shared.notificationCenter.removeObserver(obs)
         }
         BrightnessKeyService.shared.stop()
-        SoftwareDimmingService.shared.removeAll()
         // Drop EDR overlays and restore SDR on externals Crisp switched to HDR,
         // so no monitor is left bright with no boost and no DDC control.
         BrightnessBoostService.shared.prepareForTermination()

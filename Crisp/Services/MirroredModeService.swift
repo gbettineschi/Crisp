@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import Foundation
 import os.log
@@ -131,8 +132,10 @@ final class MirroredModeService: ObservableObject {
     }
 
     private func syncCursorRefresh() {
-        let sources = active.compactMap { physicalID, virtualDisplay in
-            CGDisplayMirrorsDisplay(physicalID) == virtualDisplay.displayID
+        let sources: [CGDirectDisplayID] = active.compactMap { physicalID, virtualDisplay in
+            let uuid = CGDisplayCreateUUIDFromDisplayID(physicalID).map { CFUUIDCreateString(nil, $0.takeRetainedValue()) as String }
+            return uuid.map { MirrorWorkaroundOptions.refreshCursor(uuid: $0) } == true
+                && CGDisplayMirrorsDisplay(physicalID) == virtualDisplay.displayID
                 ? virtualDisplay.displayID : nil
         }
         MirroredCursorRefreshService.shared.setSources(Set(sources))
@@ -152,13 +155,9 @@ final class MirroredModeService: ObservableObject {
         guard !display.isBuiltin else { return [] }
         let (nativeW, nativeH) = display.nativeResolution
         guard nativeW > 0, nativeH > 0 else { return [] }
-        // Experimental above-native workspace sizes for landscape 1080p Dell panels.
-        // These are logical sizes; the virtual display needs twice the pixels for HiDPI.
-        if display.vendorNumber == 4268, nativeW == 1920, nativeH == 1080 {
-            return [(width: 2048, height: 1152),
-                    (width: 2304, height: 1296),
-                    (width: 2560, height: 1440)]
-        }
+        let configured = MirrorWorkaroundOptions.sizes(uuid: display.displayUUID,
+                                                       nativeWidth: nativeW, nativeHeight: nativeH)
+        if !configured.isEmpty { return configured }
         // ponytail: ultrawide-only (21:9+) until a 16:9 4K/5K panel is verified with the
         // mirror; also capped, untested. Drop this guard to widen.
         guard Double(nativeW) / Double(nativeH) >= 2.0 else { return [] }

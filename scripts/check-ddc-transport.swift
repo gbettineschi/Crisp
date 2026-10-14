@@ -10,12 +10,12 @@ struct DDCTransportChecks {
         let null: [UInt8] = [0x6E, 0x80, 0xBE, 0x6E, 0x80, 0xBE]
         func check(_ standard: [UInt8]?, _ bridge: [UInt8]?, expected: UInt32, reads: Int) {
             var seen: [UInt32] = []
-            let result = DDCTransport.select { address in
-                seen.append(address)
-                return address == 0x37 ? standard : bridge
+            let result = DDCTransport.select(standardReply: standard) {
+                seen.append(0xB7)
+                return bridge
             }
-            precondition(result.address == expected && seen.count == reads)
-            precondition(seen.first == 0x37)
+            precondition(result.address == expected && seen.count == reads - 1)
+            precondition(seen.allSatisfy { $0 == 0xB7 })
         }
         check(valid, nil, expected: 0x37, reads: 1)
         check(nil, valid, expected: 0x37, reads: 1)
@@ -29,9 +29,9 @@ struct DDCTransportChecks {
         check(null, wrongCode, expected: 0x37, reads: 2)
         var zeroMax = valid; zeroMax[7] = 0; zeroMax[10] ^= 0x64
         check(null, zeroMax, expected: 0x37, reads: 2)
-        let failed = DDCTransport.select { $0 == 0x37 ? null : nil }
+        let failed = DDCTransport.select(standardReply: null) { nil }
         precondition(failed.address == 0x37 && !failed.verified)
-        let retried = DDCTransport.select { $0 == 0x37 ? null : valid }
+        let retried = DDCTransport.select(standardReply: null) { valid }
         precondition(retried.address == 0xB7 && retried.verified)
         print("PASS: normal transport, bounded null-reply fallback, valid bridge, failed/short/corrupt/wrong-command/zero-max replies")
     }

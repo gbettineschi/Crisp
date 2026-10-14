@@ -41,23 +41,26 @@ final class DefaultDisplaySetupService: ObservableObject {
 
     /// Cancels scheduled restore and waits for an in-flight CG operation to return before
     /// a user's resolution/arrangement action begins, so an old restore cannot win the race.
-    func prepareForUserChange() async {
+    func prepareForUserChange() async -> Bool {
         let previous = cancelPendingRestore()
         await previous?.value
+        let ready = await CGHelpers.waitForPendingOperations()
+        if !ready { status = String(localized: "macOS is still applying a display change. Try again shortly.") }
+        return ready
     }
 
     @discardableResult
     private func cancelPendingRestore() -> Task<Void, Never>? {
         generation &+= 1
         let previous = restoreTask
-        restoreTask = nil
+        // Keep the draining task visible to concurrent manual actions.
         previous?.cancel()
         isRestoring = false
         return previous
     }
 
     func saveCurrent(in manager: DisplayManager) async {
-        await prepareForUserChange()
+        guard await prepareForUserChange() else { return }
         let displays = physicalDisplays(in: manager)
         var entries: [DefaultDisplaySetup.Entry] = []
         var sourceIDs = Set<CGDirectDisplayID>()
@@ -65,14 +68,14 @@ final class DefaultDisplaySetupService: ObservableObject {
             let source = effectiveDisplayID(for: display)
             guard sourceIDs.insert(source).inserted,
                   let mode = CGDisplayCopyDisplayMode(source) else {
-                status = "Could not capture this setup. Use separate desktops for physical displays."
+                status = String(localized: "Could not capture this setup. Use separate desktops for physical displays.")
                 return
             }
             let bounds = CGDisplayBounds(source)
             guard bounds.origin.x.isFinite, bounds.origin.y.isFinite,
                   let x = Int(exactly: bounds.origin.x.rounded()),
                   let y = Int(exactly: bounds.origin.y.rounded()) else {
-                status = "Could not capture the display positions."
+                status = String(localized: "Could not capture the display positions.")
                 return
             }
             entries.append(.init(uuid: display.displayUUID, width: mode.width, height: mode.height,
@@ -83,17 +86,17 @@ final class DefaultDisplaySetupService: ObservableObject {
         do {
             try store.save(value)
             savedSetup = value
-            status = "Default saved: resolution, arrangement and main display."
+            status = String(localized: "Default saved: resolution, arrangement and main display.")
         } catch {
-            status = "Could not save this setup. Wait for the displays to settle and try again."
+            status = String(localized: "Could not save this setup. Wait for the displays to settle and try again.")
         }
     }
 
     func clear() async {
-        await prepareForUserChange()
+        guard await prepareForUserChange() else { return }
         store.clear()
         savedSetup = nil
-        status = "Default cleared. The current display settings are unchanged."
+        status = String(localized: "Default cleared. The current display settings are unchanged.")
     }
 
     func hasMatchingDefault(in manager: DisplayManager) -> Bool {
@@ -103,7 +106,7 @@ final class DefaultDisplaySetupService: ObservableObject {
     /// Three attempts with delays; no endless retries and no action on another monitor set.
     func requestRestore(in manager: DisplayManager) {
         let previous = cancelPendingRestore()
-        guard let setup = savedSetup,
+        guard !PresetService.shared.isApplying, let setup = savedSetup,
               setup.matches(uuids: physicalDisplays(in: manager).map(\.displayUUID)) else { return }
         let token = generation
         restoreTask = Task { @MainActor [weak self, weak manager] in
@@ -117,17 +120,23 @@ final class DefaultDisplaySetupService: ObservableObject {
             }
             for delay: UInt64 in [1_000_000_000, 2_000_000_000, 4_000_000_000] {
                 do { try await Task.sleep(nanoseconds: delay) } catch { return }
+                guard await CGHelpers.waitForPendingOperations() else {
+                    if self.generation == token {
+                        self.status = String(localized: "macOS is still applying a display change. Try again shortly.")
+                    }
+                    return
+                }
                 guard self.canRestore(setup, in: manager, token: token) else { return }
                 self.isRestoring = true
                 if await self.apply(setup, in: manager, token: token) {
                     guard self.canRestore(setup, in: manager, token: token) else { return }
-                    self.status = "Saved default restored."
+                    self.status = String(localized: "Saved default restored.")
                     return
                 }
                 guard self.canRestore(setup, in: manager, token: token) else { return }
             }
             Self.log.error("Saved default could not be restored after three attempts")
-            self.status = "Could not restore the default. Check the displays, then press Restore default."
+            self.status = String(localized: "Could not restore the default. Check the displays, then press Restore default.")
         }
     }
 
@@ -210,7 +219,7 @@ final class DefaultDisplaySetupService: ObservableObject {
             let current = CGDisplayCopyDisplayMode(physicalID)
             if current?.width != entry.width || current?.height != entry.height
                 || (current.map { $0.pixelWidth > $0.width } != entry.isHiDPI) {
-                guard await ResolutionService.shared.setDisplayMode(target, for: physicalID) else { return false }
+                guard await ResolutionService.shared.setDisplayMode(target, for: physicalID, restoringDefault: true) else { return false }
             }
         }
         guard canRestore(setup, in: manager, token: token) else { return false }

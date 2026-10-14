@@ -1,133 +1,165 @@
-# Dell P2425H local build
+# Display maintenance fork
 
-This checkout includes the earlier Dell scaling/default-layout patch and the
-standalone HDMI DDC transport, brightness-key routing, and cursor refresh fixes.
-The tested desktop is 2304 × 1296 HiDPI (4608 × 2592 backing), mirrored onto a
-1920 × 1080 Dell at 100 Hz. The laptop remains the main display below the Dell.
+This fork was developed with **OpenAI Codex**, including implementation, tests,
+and code review. The locally exercised setup is an M1 Pro HDMI connection to a
+Dell P2425H: 2304 × 1296 logical HiDPI (4608 × 2592 backing), 100 Hz, with the
+built-in display below it as the main display. BetterDisplay is not required.
+This is a tested configuration, not a claim of support for arbitrary hardware.
 
-## Cursor
+## Contribution status
 
-A standalone mirrored virtual screen reproduced the sticking/jumping cursor at
-both 100 Hz and 60 Hz, even with Crisp absent and touching screen edges. The same
-layout worked in BetterDisplay. A tiny redraw on the source screen resolved the
-symptom in the user's live test at 100 Hz.
+Upstream PRs [#229](https://github.com/didriksg/Crisp/pull/229),
+[#230](https://github.com/didriksg/Crisp/pull/230), and
+[#231](https://github.com/didriksg/Crisp/pull/231) are **closed and withdrawn**.
+Their descriptions disclose Codex assistance. Their remote contribution branches
+were deleted; the maintenance branch remains separate from upstream `main`.
+No upstream acceptance is requested. Reopening contributions requires full CI and
+broader hardware/lifecycle validation, not just a successful local build.
 
-`MirroredCursorRefreshService` maintains a one-point, 1%-opacity, click-through
-panel per owned mirror source. It polls pointer position at 60 Hz and changes the
-panel only on movement. It does not warp the cursor, intercept input, or request
-Accessibility access. Mirror teardown removes its panels, observer, and timer.
-Screen-parameter notifications reposition the panels.
+## Hardware brightness and keys
 
-Background: [BetterDisplay issue #807](https://github.com/waydabber/BetterDisplay/issues/807#issuecomment-2593772073).
+The tested HDMI bridge acknowledges ordinary IOAVService requests at `0x37` but
+returns DDC NULL replies. A valid brightness reply at `0xB7` identifies the usable
+bridge transport. Negotiation is not tied to a manufacturer or model number.
 
-## Brightness
+Only an ordinary, quarantine-aware brightness read can negotiate after a NULL
+reply. Writes and capabilities requests never initiate negotiation reads. Valid
+standard and bridge transports are cached with the current channel; topology
+changes clear them. Unconfirmed bridge selection has a 20-second retry cooldown,
+subject to the existing read quarantine. Replies must pass header, length,
+checksum, command, and value-range checks. This uses private IOAVService behavior;
+other HDMI bridges and write-only monitors still need physical validation.
 
-Crisp controls the Dell's physical backlight directly, without BetterDisplay
-running or installed. On the tested M1 HDMI connection, ordinary IOAVService
-DDC at chip address `0x37` acknowledges requests but returns DDC NULL frames.
-The HDMI bridge transport uses `0xB7` with the same DDC packet and checksum.
-A standalone probe verified brightness writes and matching readback at 60, 85,
-and 100 with BetterDisplay closed. The installed Crisp build then passed hardware
-readback at 0, 10, 25, 50, 75, and 100 (three replies each), with software factor
-1.0 throughout. The panel was restored to 50 afterward.
+`crisp.hardwareOnlyBrightnessUUIDs` is an array of physical display UUIDs. For an
+opted-in SDR monitor, the slider maps the complete 0–100 range to hardware DDC,
+without the normal below-15% gamma dimming or speculative software preview.
+Zero means minimum backlight, not black. Failure fallback and HDR routing remain
+available. Restoring a saved dim clears it only when SDR is positively confirmed;
+unavailable HDR information preserves it. Identity gamma is not repeatedly written
+on ordinary DDC adjustments, avoiding unnecessary interference with f.lux.
 
-`DDCTransport` probes the bridge only after a standard DDC NULL reply. It requires
-a successful brightness response with valid header, checksum, and current/max
-range before permitting bridge writes. The selected transport is cached per
-display and invalidated with its channel. Inconclusive probes retry after a
-20-second cooldown rather than latching a wake-time failure forever. Normal and write-only DDC routes retain
-the standard address. All operations use the existing per-display DDC queue.
-This relies on private IOAVService behavior and needs regression testing on
-other Apple Silicon HDMI connections.
+The experimental black-window dimming backend was removed during audit. It could
+dim an entire mirror group, stack multiple overlays, and interfere with brightness
+boost. `crisp.forceSoftwareBrightnessUUIDs` is no longer read. The upstream gamma
+fallback remains. Hardware dimming includes the cursor; software dimming does not
+necessarily do so.
 
-The optional `crisp.hardwareOnlyBrightnessUUIDs` array selects physical panels
-whose SDR slider should use the complete hardware 0–100 range without software
-preview or extra gamma dimming below 15%. It is enabled locally for the Dell.
-Zero means the monitor's minimum backlight, not a black image. Hardware dimming
-includes the hardware cursor and coexists with f.lux colour adjustment. The
-normal failure fallback and HDR software route remain available.
+Brightness keys resolve a Crisp-owned mirror source to its unique physical owner.
+Native screens retain direct matching; ambiguous, unknown, or inactive mirrors
+retain the existing fallback. The same routing serves custom shortcuts, and the
+HUD uses the rendering screen. The user previously confirmed that “Follow the
+pointer” targets the Dell after refreshing the app's Accessibility grant.
 
-The optional `crisp.forceSoftwareBrightnessUUIDs` preference remains for panels
-whose transport cannot control hardware. It is **disabled for this Dell**. Its
-`SoftwareDimmingService` uses a click-through black panel with a 5% floor,
-following the physical panel's current mirror source. This avoids gamma-table
-competition with f.lux but does not darken the hardware cursor. Panels are
-removed at 100%, on disconnect, or on quit; UUID checks reject stale writes.
+## Optional mirror workarounds
 
-## Brightness keys
+Both options are explicit per-display preferences; no Dell vendor check remains.
+Use the physical UUID reported by `crispctl display list`, not its transient ID.
+Restart Crisp after changing these settings.
 
-With “Follow the pointer”, AppKit reports the virtual source under the pointer,
-while Crisp's display list contains the physical Dell. The previous direct-ID
-lookup failed and passed the key through to macOS, changing the built-in panel.
-`BrightnessDisplayRouting` now resolves a unique physical owner for a live,
-Crisp-owned mirror source. Native screens keep their direct match; unknown,
-inactive, and ambiguous mirrors keep the existing fallback. The same mapping
-serves custom brightness shortcuts, and the brightness HUD uses the rendering
-screen. “All displays” and selected-display routing are unchanged.
+- `crisp.cursorRefreshUUIDs`: array of UUID strings. Default: empty. Enables a
+  one-point, 1%-opacity, click-through redraw panel on that monitor's Crisp-owned
+  mirror source. Pointer position is polled at 60 Hz; redraw occurs on movement.
+  Teardown removes panels, observer, and timer. This resolved cursor crossing in
+  the user's 2304 × 1296 / 100 Hz test. Fullscreen Spaces, sleep/wake, and power
+  consumption have not been established across hardware.
+- `crisp.experimentalHiDPIWidthsByUUID`: dictionary from UUID to integer width
+  arrays. Default: empty. Heights follow the native aspect ratio; widths must
+  exceed native width, both logical dimensions are capped at 4096, duplicate sizes
+  are removed, and at most 16 stops are used. This bounds the 2× backing to 8192
+  pixels per axis. Configuring a size does not guarantee macOS/GPU support. The
+  locally tested widths are 2048, 2304, and 2560 on a 1920 × 1080 panel.
 
-The regression harness `scripts/check-brightness-routing.swift` fails on the
-old direct-only lookup and passes eight routing cases with the fix. Equivalent
-XCTest coverage lives in `CrispTests/BrightnessDisplayRoutingTests.swift`.
-After refreshing the rebuilt app’s Accessibility grant, the user confirmed
-that brightness keys now target the Dell with the pointer on it.
+Example opt-ins (replace the placeholder with a physical display UUID):
 
-## Checks
+```sh
+defaults write com.crisp.app crisp.cursorRefreshUUIDs -array 'DISPLAY-UUID'
+defaults write com.crisp.app crisp.experimentalHiDPIWidthsByUUID -dict-add \
+  'DISPLAY-UUID' '<array><integer>2048</integer><integer>2304</integer><integer>2560</integer></array>'
+defaults write com.crisp.app crisp.hardwareOnlyBrightnessUUIDs -array 'DISPLAY-UUID'
+```
 
-The app compiles with the macOS Command Line Tools and Swift 6. The focused
-checks in `scripts/check-dell-workarounds.swift` exercise the actual persistence
-model. `scripts/check-mirrored-cursor-refresh.swift` checks cursor-panel lifecycle.
-`scripts/check-software-dimming.swift` checks
-brightness opacity, the safety floor, click-through behavior, display-ID
-validation, screen reconfiguration, and removal. Commands are in their headers.
+The `-array` examples replace that preference's existing list. Existing upstream
+ultrawide behavior remains available when no valid extra widths are configured.
+Identical monitor virtual identities and rotated displays remain unverified.
 
-`scripts/check-ddc-transport.swift` exercises bounded negotiation and rejects
-malformed bridge replies; equivalent XCTest coverage is in `DDCTransportTests`.
+## Saved setup and arrangement
 
-The normal `make test` command could not run here: xcodegen/full Xcode are absent.
-A temporary Swift Package attempt also failed because XCTest is unavailable in
-this Command Line Tools installation. Do not interpret the focused checks as a
-complete XCTest-suite run. Full-screen Spaces and physical sleep/wake remain
-manual follow-up checks.
+Saving a default records resolution, HiDPI state, origins, and main display for
+one exact set of display UUIDs. It is not a full hardware configuration backup:
+rotation, refresh rate, HDR, and mirror topology are not saved. Ordinary physical
+mirror groups cannot be captured as separate desktops. Third-party virtual
+screens are not categorically excluded.
 
-Official app updates replace this custom binary; automatic updates are disabled
-in the local preferences, and `./dev.sh` preserves that policy on every rebuild.
-Rebuild from this checkout to retain these changes. Manual upstream installation
-still replaces the custom app.
+Manual resolution and arrangement changes cancel pending restores and drain
+already-started CoreGraphics operations. A response timeout is distinguished from
+actual operation completion; a busy drain aborts replacement work instead of
+allowing a late restore to overwrite it. Restore retries also drain, and presets
+suppress reconnect-triggered restores while applying. The drain wait itself is
+bounded, but awaiting the preceding restore can take longer. This is not a general
+transaction lock for every concurrent display action in the application.
 
-## Maintaining this fork
+Arrangement coalesces physical mirror members sharing the same desktop origin;
+conflicting positions are rejected. Dragging one member moves its mirror group.
+Restore can partially apply before an error; it does not provide atomic rollback.
 
-Keep the local maintenance branch separate from upstream `main`. Fetch upstream
-changes, merge them into the maintenance branch, resolve conflicts, and rebuild
-with `./dev.sh`; do not install the upstream binary over the fork. The script
-updates the existing `/Applications/Crisp.app` and does not create a second app.
-Run `make check` on a Mac with Xcode, xcodegen, and SwiftLint before publishing.
+## Audit and reproducible checks
 
-For contribution, keep transport negotiation, mirror-aware brightness-key
-routing, and cursor refresh in independent commits/PRs. The experimental Dell
-resolution stops, saved default setup, software fallback, and hardware-only
-preference can remain on the maintenance branch until their broader behavior
-has been exercised. Do not publish `build/` diagnostics or machine preferences.
+On 2026-10-15, the optimized arm64 build (warnings as errors), x86_64 typecheck,
+all seven focused checks in three consecutive passes, available strict lint,
+XcodeGen generation, shell syntax, and whitespace checks passed. `make test`
+reached xcodebuild and failed because full Xcode is not installed. The audit
+binary was not installed over the working `/Applications/Crisp.app`. Local UUID
+opt-ins were prepared so a later build retains the current cursor/resolution
+settings. No upstream PR was reopened.
 
-Local preferences are keyed by the physical panel's CoreGraphics UUID, not its
-transient display ID. `crisp.hardwareOnlyBrightnessUUIDs` and
-`crisp.forceSoftwareBrightnessUUIDs` are arrays of UUID strings read at launch;
-restart Crisp after changing them. For a hardware-only panel, remove it from the
-forced-software array and clear its saved `crisp.softBrightness.uuid.<UUID>` to
-`1.0` before restarting so a previous software fallback does not remain dimmed.
+The audit found and corrected read-quarantine bypass, mirror-group dimming and
+boost regressions, saved-HDR dimming loss, restore cancellation gaps, duplicate
+mirror-origin rejection, and lint failures. Focused checks exercise production
+models/services, not copies of their implementations:
 
-Ad-hoc signing changes the app identity on rebuild and may require refreshing
-Crisp's existing Accessibility grant for brightness keys. A stable local code
-signing identity named `Crisp Dev` avoids that repeated step; see `dev.sh`.
+```sh
+bash scripts/check-maintenance.sh
+```
 
-## Upstream contributions
+This compiles seven checks with Swift 6 and warnings as errors, then runs each
+three times: brightness routing, DDC negotiation, saved-layout persistence,
+mirror-origin grouping, mirror-option validation, delayed CoreGraphics completion,
+and cursor-panel lifecycle. The last briefly creates a one-point window; it does
+not move the pointer or change display modes.
 
-The complete local build is maintained on `maintenance/dell-display-fixes` in
-[gbettineschi/Crisp](https://github.com/gbettineschi/Crisp/tree/maintenance/dell-display-fixes).
-Independent draft PRs target upstream `main`:
+The full optimized arm64 application build, x86_64 typecheck, available strict
+SwiftLint rules, shell syntax, and whitespace checks are separate checks. With
+Command Line Tools, `SWIFTLINT_DISABLE_SOURCEKIT=1` skips the SourceKit-backed
+`statement_position` rule. XcodeGen can generate the project, but `make test` and
+compiler-based localization export require full Xcode, absent on this machine.
+Do not describe focused checks as a full XCTest run or proof of no regressions.
+New status strings have catalog keys; translations remain incomplete.
 
-- [#229: HDMI bridge DDC transport](https://github.com/didriksg/Crisp/pull/229)
-- [#230: Mirror-aware brightness keys](https://github.com/didriksg/Crisp/pull/230)
-- [#231: Mirrored cursor refresh](https://github.com/didriksg/Crisp/pull/231)
+Earlier hardware validation covered brightness 0, 10, 25, 50, 75, and 100 with
+three DDC readbacks each and software factor 1.0; those results belong to the
+previous installed build. They do not substitute for hardware validation of
+subsequent audit edits. Sleep/reconnect, HDR, arbitrary write-only monitors,
+fullscreen Spaces, and display combinations remain manual follow-up work.
 
-These PRs exclude the experimental Dell modes and local brightness policies.
-Draft status reflects the incomplete full CI/manual coverage described above.
+## Maintenance and updates
+
+Keep changes on `maintenance/dell-display-fixes`; fetch and review upstream
+changes before merging and rebuilding. `./dev.sh` replaces the existing
+`/Applications/Crisp.app`, without creating a second application. Run `make check`
+with full Xcode, XcodeGen, and SwiftLint before publishing a contribution.
+Do not publish ignored `build/` diagnostics or machine preferences.
+
+Development builds disable automatic upstream updates by default, both in the
+bundle and persisted preferences. A manual upstream install still replaces the
+custom binary, and those disabled preferences survive replacement. To restore
+updater defaults during a development build, use `CRISP_DISABLE_UPDATES=0 ./dev.sh`.
+After installing an official upstream build, delete the two persisted overrides:
+
+```sh
+defaults delete com.crisp.app SUEnableAutomaticChecks
+defaults delete com.crisp.app SUAutomaticallyUpdate
+```
+
+Ad-hoc signing can invalidate Accessibility permission on rebuild. Refresh
+Crisp's existing grant if needed. A stable local signing identity named `Crisp Dev`
+avoids repeated identity changes; see `dev.sh`.

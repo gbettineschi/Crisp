@@ -289,41 +289,6 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         avServiceLock.unlock()
     }
 
-    /// The M1 HDMI bridge acknowledges ordinary DDC writes but returns NULL
-    /// frames. A read-only negotiation selects IOAVService's bridge flag after
-    /// validating a real brightness reply. Runs on the existing per-display
-    /// queue, so negotiation and writes cannot interleave for the same panel.
-    private func arm64ChipAddress(for displayID: CGDirectDisplayID, service: IOAVServiceRef) -> UInt32 {
-        if let cached = avServiceLock.withLock({ avServiceChipAddresses[displayID] }),
-           cached.retryAfter.map({ $0 > Date() }) ?? true { return cached.address }
-        let selection = DDCTransport.select { address in
-            // Also pace failed probes before the caller retries the bus.
-            defer { Thread.sleep(forTimeInterval: 0.05) }
-            var request: [UInt8] = [0x82, 0x01, Self.brightnessVCP]
-            request.append(request.reduce(UInt8(0x6E ^ 0x51), ^))
-            guard IOAVServiceWriteI2C(service, address, 0x51, &request, UInt32(request.count)) == kIOReturnSuccess
-            else { return nil }
-            Thread.sleep(forTimeInterval: 0.04)
-            var reply = [UInt8](repeating: 0, count: 12)
-            guard IOAVServiceReadI2C(service, address, 0x51, &reply, UInt32(reply.count)) == kIOReturnSuccess
-            else { return nil }
-            return reply
-        }
-        avServiceLock.withLock {
-            // A reconfiguration may have replaced the channel during the probe.
-            if avServiceCache[displayID] == service {
-                // Wake-time failures must not lock an HDMI bridge to the
-                // ineffective standard path. Rate-limit inconclusive probes.
-                let retryAfter = selection.verified ? nil : Date().addingTimeInterval(noChannelRetryInterval)
-                avServiceChipAddresses[displayID] = (selection.address, retryAfter)
-            }
-        }
-        if selection.address == DDCTransport.hdmiBridge {
-            Self.log.notice("display \(displayID, privacy: .public): verified HDMI bridge DDC transport")
-        }
-        return selection.address
-    }
-
     /// ARM64 DDC write: Set VCP Feature over IOAVService.
     /// Payload: [0x84, 0x03, vcpCode, valueHigh, valueLow, checksum], checksum XORed
     /// from 0x50 (0x6E DDC dest ^ 0x51 sub-address) over the payload bytes.
@@ -340,7 +305,7 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         for b in payload { checksum ^= b }
 
         var buf: [UInt8] = payload + [checksum]
-        let address = arm64ChipAddress(for: displayID, service: avService)
+        let address = arm64ChipAddress(for: displayID)
         let ret = IOAVServiceWriteI2C(avService, address, 0x51, &buf, UInt32(buf.count))
         if ret != kIOReturnSuccess {
             Self.log.debug("write \(Self.hex(command), privacy: .public)=\(value, privacy: .public) display \(displayID, privacy: .public): I2C error \(String(format: "0x%08X", ret), privacy: .public)")
@@ -351,7 +316,8 @@ final class DDCService: ObservableObject, @unchecked Sendable {
     /// ARM64 DDC read: send a Get VCP request then read the response via IOAVService.
     /// Request layout: [0x82, 0x01, vcpCode, checksum]
     /// Response bytes 4-7 carry: [maxHigh, maxLow, curHigh, curLow]
-    private func arm64Read(displayID: CGDirectDisplayID, command: UInt8) -> (current: UInt16, max: UInt16)? {
+    private func arm64Read(displayID: CGDirectDisplayID, command: UInt8,
+                           allowBridgeProbe: Bool = true) -> (current: UInt16, max: UInt16)? {
         guard let avService = findAVService(for: displayID) else {
             Self.log.debug("read \(Self.hex(command), privacy: .public) display \(displayID, privacy: .public): no DDC channel")
             return nil
@@ -367,7 +333,7 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         for b in requestPayload { requestChecksum ^= b }
         var requestBuf: [UInt8] = requestPayload + [requestChecksum]
 
-        let address = arm64ChipAddress(for: displayID, service: avService)
+        let address = arm64ChipAddress(for: displayID)
         let writeRet = IOAVServiceWriteI2C(avService, address, 0x51, &requestBuf, UInt32(requestBuf.count))
         guard writeRet == kIOReturnSuccess else {
             return fail("request write I2C error \(String(format: "0x%08X", writeRet))")
@@ -380,6 +346,13 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         let readRet = IOAVServiceReadI2C(avService, address, 0x51, &replyBuf, UInt32(replyBuf.count))
         guard readRet == kIOReturnSuccess else {
             return fail("reply read I2C error \(String(format: "0x%08X", readRet))")
+        }
+
+        if allowBridgeProbe, command == Self.brightnessVCP, address == DDCTransport.standard, replyBuf.starts(with: [0x6E, 0x80, 0xBE]),
+           arm64NegotiateBridge(for: displayID, service: avService, standardReply: replyBuf) == DDCTransport.hdmiBridge {
+            // Retry the original VCP after verifying brightness on the bridge.
+            // This remains within readSynchronous's timing/quarantine accounting.
+            return arm64Read(displayID: displayID, command: command, allowBridgeProbe: false)
         }
 
         // Reply: [source 0x6E, len 0x88, 0x02, result, VCP echo, type, maxHi, maxLo, curHi, curLo, chk]
@@ -412,6 +385,7 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         guard maxVal > 0 || command == DDCInputSource.vcp else {
             return fail("reply carries max 0")
         }
+        arm64CacheStandardReply(replyBuf, command: command, address: address, displayID: displayID, service: avService)
         Self.log.notice("read \(Self.hex(command), privacy: .public) display \(displayID, privacy: .public): ok \(curVal, privacy: .public)/\(maxVal, privacy: .public)")
         return (current: curVal, max: maxVal)
     }
@@ -421,7 +395,7 @@ final class DDCService: ObservableObject, @unchecked Sendable {
     /// One chunk of the capabilities string (DDCCapabilities has the framing).
     private func arm64CapabilitiesChunk(displayID: CGDirectDisplayID, offset: Int) -> CapabilitiesChunk {
         guard let avService = findAVService(for: displayID) else { return .noChannel }
-        let address = arm64ChipAddress(for: displayID, service: avService)
+        let address = arm64ChipAddress(for: displayID)
         var request = DDCCapabilities.request(offset: offset)
         guard IOAVServiceWriteI2C(avService, address, 0x51, &request, UInt32(request.count)) == kIOReturnSuccess else {
             return .bad
@@ -984,3 +958,52 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         }
     }
 }
+
+#if arch(arm64)
+private extension DDCService {
+    func arm64CacheStandardReply(_ reply: [UInt8], command: UInt8, address: UInt32,
+                                 displayID: CGDirectDisplayID, service: IOAVServiceRef) {
+        guard command == Self.brightnessVCP, address == DDCTransport.standard,
+              DDCTransport.select(standardReply: reply, readBridge: { nil }).verified else { return }
+        avServiceLock.withLock {
+            if avServiceCache[displayID] == service { avServiceChipAddresses[displayID] = (address, nil) }
+        }
+    }
+
+    /// Writes never initiate reads: preserve the read quarantine and write-only
+    /// monitors. An address is learned only from a normal VCP read below.
+    func arm64ChipAddress(for displayID: CGDirectDisplayID) -> UInt32 {
+        avServiceLock.withLock { avServiceChipAddresses[displayID]?.address ?? DDCTransport.standard }
+    }
+
+    /// Only a normal, quarantine-aware read returning NULL may probe the bridge.
+    func arm64NegotiateBridge(for displayID: CGDirectDisplayID, service: IOAVServiceRef,
+                              standardReply: [UInt8]) -> UInt32 {
+        if let cached = avServiceLock.withLock({ avServiceChipAddresses[displayID] }),
+           cached.retryAfter.map({ $0 > Date() }) ?? true { return cached.address }
+        let selection = DDCTransport.select(standardReply: standardReply) {
+            // Respect the previous read and pace failed probes too.
+            Thread.sleep(forTimeInterval: 0.05)
+            defer { Thread.sleep(forTimeInterval: 0.05) }
+            var request: [UInt8] = [0x82, 0x01, Self.brightnessVCP]
+            request.append(request.reduce(UInt8(0x6E ^ 0x51), ^))
+            let address = DDCTransport.hdmiBridge
+            guard IOAVServiceWriteI2C(service, address, 0x51, &request, UInt32(request.count)) == kIOReturnSuccess
+            else { return nil }
+            Thread.sleep(forTimeInterval: 0.04)
+            var reply = [UInt8](repeating: 0, count: 12)
+            guard IOAVServiceReadI2C(service, address, 0x51, &reply, UInt32(reply.count)) == kIOReturnSuccess
+            else { return nil }
+            return reply
+        }
+        avServiceLock.withLock {
+            if avServiceCache[displayID] == service {
+                let retryAfter = selection.verified ? nil : Date().addingTimeInterval(noChannelRetryInterval)
+                avServiceChipAddresses[displayID] = (selection.address, retryAfter)
+            }
+        }
+        return selection.address
+    }
+
+}
+#endif

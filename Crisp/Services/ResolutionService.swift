@@ -124,7 +124,11 @@ final class ResolutionService: @unchecked Sendable {
 
     /// Sets a display mode; mirror-aware (applies to the mirror source, not target).
     /// See docs/display-notes.md (ResolutionService).
-    func setDisplayMode(_ mode: DisplayMode, for displayID: CGDirectDisplayID) async -> Bool {
+    func setDisplayMode(_ mode: DisplayMode, for displayID: CGDirectDisplayID,
+                        restoringDefault: Bool = false) async -> Bool {
+        if !restoringDefault {
+            guard await DefaultDisplaySetupService.shared.prepareForUserChange() else { return false }
+        }
         PresetService.shared.noteManualChange()
         let (targetID, isMirrorRedirect) = resolvedTargetDisplayID(for: displayID)
         let scope = DisplayModeCommitScope.forUserSelection(
@@ -244,7 +248,8 @@ final class ResolutionService: @unchecked Sendable {
         on displayID: CGDirectDisplayID,
         scope: CGConfigureOption
     ) async -> Bool {
-        let committed = await Task.detached(priority: .userInitiated) {
+        guard await CGHelpers.waitForPendingOperations(), !Task.isCancelled else { return false }
+        let committed = await CGHelpers.runWithTimeout(seconds: 10, fallback: false) {
             var config: CGDisplayConfigRef?
             guard CGBeginDisplayConfiguration(&config) == .success, let cfg = config else {
                 return false
@@ -257,7 +262,7 @@ final class ResolutionService: @unchecked Sendable {
             }
 
             return CGCompleteDisplayConfiguration(cfg, scope) == .success
-        }.value
+        }
         guard committed else { return false }
         // Commit propagates async; wait for the mode-change event (not a blind sleep) then verify.
         let target = Int32(bitPattern: modeID)
