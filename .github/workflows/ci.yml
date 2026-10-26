@@ -69,13 +69,11 @@ jobs:
           cp build/Localizable.xcstrings.orig Crisp/Resources/Localizable.xcstrings
           python3 scripts/check-localization-keys.py build/loc/en.xcloc \
             Crisp/Resources/Localizable.xcstrings scripts/i18n-missing-allowlist.txt
-      # Blocking on pushes to main, advisory on pull requests. A contributor
-      # adding an English string is never blocked (the release path,
-      # release.sh --publish, still enforces completeness before shipping). But
-      # a merge or direct push to main that drops or omits a zh-Hans string now
-      # turns main red at once, instead of surfacing later as an aborted
-      # release. This is how #34's merge silently lost two volume translations.
+      # The personal fork accepts English fallback for untranslated strings.
+      # Keep the upstream translation policy when this workflow runs elsewhere.
+      # The localization-key check above still catches missing source keys.
       - name: Translation completeness (blocking on main, advisory on PRs)
+        if: github.repository != 'gbettineschi/Crisp'
         run: |
           if [ "${{ github.event_name }}" = "push" ]; then
             python3 scripts/check-translations.py Crisp/Resources/Localizable.xcstrings
