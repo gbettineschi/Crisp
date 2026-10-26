@@ -27,6 +27,8 @@ brew tap gbettineschi/tap
 brew install --cask gbettineschi/tap/crisp-personal
 ```
 
+Moving from an existing copy? Quit Crisp first. If installed through the upstream cask, run `brew uninstall --cask crisp` without `--zap`; otherwise move the old app bundle to Trash. Keep preferences and other app data, then install this cask.
+
 Or download `Crisp-personal.zip` from [this fork's releases](https://github.com/gbettineschi/Crisp/releases). Quit Crisp before replacing the app. Turn off upstream automatic updates in an existing copy before switching; the packaged fork disables the upstream feed so updates come through this tap.
 
 The build is ad-hoc signed and not notarized; macOS may require **Open Anyway** in Privacy & Security. Brightness keys need Accessibility access, which can require renewed approval after an update. Preferences are shared with upstream because the bundle ID is unchanged. Keep app data when changing installations. `brew install --cask crisp` installs upstream.
