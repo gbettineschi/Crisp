@@ -1,132 +1,61 @@
-<div align="center">
+<img src="docs/icon.png" width="80" alt="Crisp icon">
 
-<img src="docs/icon.png" width="128" alt="Crisp icon">
+# Crisp — personal fork
 
-# Crisp
+A fork of [didriksg/Crisp](https://github.com/didriksg/Crisp), made for my MacBook and Dell monitor setup. I added HDMI brightness fixes, better brightness-key routing for mirrored displays, saved display layouts, and opt-in HiDPI and cursor workarounds.
 
-**Every display control macOS hides, in one menu bar panel.**
+**My changes are 100% vibe-coded, for personal use, and provided as is.** No warranty or promised support. The original app is the work of its upstream authors.
 
-Free, open-source external monitor control for macOS.<br>
-Sharp HiDPI scaling, DDC brightness, presets and virtual displays.
+Crisp is a native macOS menu-bar app for display scaling, brightness, volume, presets and virtual displays. For the original app and its signed releases, see [upstream](https://github.com/didriksg/Crisp). Those downloads do not contain this fork's patches.
 
-[<img src="docs/download-macos.png" alt="Download Crisp for macOS" width="180">](https://github.com/didriksg/Crisp/releases/latest/download/Crisp.dmg)
+## What changed
 
-[![Downloads](https://img.shields.io/github/downloads/didriksg/Crisp/total?label=downloads&color=2f81f7)](https://github.com/didriksg/Crisp/releases)
-[![Platform](https://img.shields.io/badge/platform-macOS%2014%2B-blue)](#requirements)
-[![License](https://img.shields.io/github/license/didriksg/Crisp?color=3fb950)](LICENSE)
+- **HDMI brightness:** detect a working DDC transport on the tested Apple silicon HDMI bridge; optional hardware-only brightness per monitor.
+- **Brightness keys:** route a mirrored desktop to its physical monitor, including “follow the pointer”.
+- **Saved layout:** restore display positions, the main display and selected HiDPI modes. This is a partial layout restore, not a full hardware backup.
+- **Optional mirror fixes:** extra HiDPI sizes and a cursor redraw workaround, enabled per display. They are off by default.
+- **Maintenance:** focused regression checks and a development installer that disables upstream automatic updates to preserve the patches.
 
-[Website](https://crispmac.app/) · [Crisp vs BetterDisplay & Lunar](https://crispmac.app/crisp-vs-betterdisplay.html) · [Fix a blurry external monitor](https://crispmac.app/fix-blurry-external-monitor-macos.html) · [中文](https://crispmac.app/zh.html)
+The locally exercised setup was an M1 Pro and Dell P2425H at 2304 × 1296 logical HiDPI / 100 Hz. Other monitors, sleep/wake, HDR and display combinations still need testing. See [details and opt-in settings](docs/dell-workarounds.md).
 
-</div>
+## Install this fork
 
----
-
-Crisp is a lightweight, native menu bar app for controlling external monitors on macOS, and a free, open-source alternative to BetterDisplay and Lunar. It adds what macOS leaves out: sharp HiDPI scaling on any monitor (no more blurry or tiny text), real brightness and volume control over DDC, presets, display arrangement, and virtual displays. Every feature is free, with no Pro tier and no license key.
-
-Available in English, 简体中文 and 繁體中文.
-
-https://github.com/user-attachments/assets/90a62808-84d2-40d6-8563-0b282b9b4b6d
-
-## Install
+Requires **macOS 14+**, full **Xcode with a macOS 26+ SDK**, and a matching Swift 6 compiler. There is no prebuilt release of this fork yet. `brew install --cask crisp` installs upstream.
 
 ```sh
-brew install --cask crisp
+git clone https://github.com/gbettineschi/Crisp.git
+cd Crisp
+make build
+open Crisp.dmg
 ```
 
-Or download [`Crisp.dmg`](https://github.com/didriksg/Crisp/releases/latest/download/Crisp.dmg) and drag Crisp to Applications. Every release is signed and notarized by Apple, so it opens with a normal double-click.
+`make build` creates an ad-hoc signed, universal Apple silicon/Intel app. Quit any running Crisp, then drag the app from the disk image into Applications, replacing the existing copy.
 
-Installed from `didriksg/tap` earlier? `brew upgrade` moves you to the main cask by itself; `brew untap didriksg/tap` afterwards is optional cleanup.
-
-## Features
-
-- **Sharp, Retina-quality scaling on any display**: HiDPI resolutions that make external monitors crisp instead of blurry or tiny, set up automatically for 1440p and larger, always at the panel's full refresh rate (no more 1080p stuck at 50Hz on a 144Hz monitor)
-- **Smooth scaling**: set how large everything looks in small steps, far beyond the few sizes macOS offers
-- **Brightness everywhere**: the real backlight of external monitors over DDC, software dimming where that isn't supported and below the hardware minimum, and brightness keys that follow the pointer, all displays, or a chosen few, or shortcuts of your own
-- **Extra Brightness**: push XDR MacBook panels and HDR monitors past 100% into their HDR headroom; one toggle per display, then the slider and keys reach further. It draws more power, and HDR video can look overblown while it's on
-- **Volume**: monitor speaker volume over DDC, with a slider per display and the volume keys mapped to the monitor when it's your audio output
-- **Presets**: save resolution, brightness, arrangement, image adjustment, HDR and which displays are on under a name and icon, and apply them with one click, from Shortcuts, or from crispctl
-- **Shortcuts**: apply a preset, set brightness, HDR, Extra Brightness, image adjustment or a monitor's input, and disconnect or reconnect a display, as actions in the Shortcuts app, so an automation can switch your displays between a day and a night setup
-- **Display arrangement**: drag-to-arrange canvas, main display switching, and a pointer that crosses edges where displays of different sizes don't line up
-- **Disconnect displays**: turn physical displays off and back on from the menu or a switch on each display row, remembered across sleep and reboot, and keep the built-in off while you're docked (Apple Silicon)
-- **Input switching**: switch a monitor to another input over DDC, a second computer on HDMI for instance, and back from the menu
-- **System toggles**: Dark Mode, Night Shift, and True Tone, one click from the menu bar
-- **Color**: ICC profile switching, XDR reference presets, HDR on/off per display, and image adjustment (gamma, contrast, gain, invert colors)
-- **Virtual displays**: create HiDPI virtual screens
-- **Extras**: combined brightness slider, auto brightness following the built-in display, a toggle for macOS's own ambient auto-brightness, keep awake, notch hiding, launch at login
-
-## How does it compare?
-
-BetterDisplay and Lunar are excellent, deeper tools. Crisp keeps the everyday essentials free: flexible HiDPI scaling, hardware brightness, presets, disconnecting displays, color adjustments, and auto-brightness sync. See the full side-by-side: [Crisp vs BetterDisplay, Lunar & MonitorControl](https://crispmac.app/crisp-vs-betterdisplay.html).
-
-## Support
-
-Crisp is and will stay completely free. Its main running cost is the $99/year Apple Developer Program, Apple's fee for signing and notarizing the app so it installs cleanly. If you've found Crisp useful, or it saved you a BetterDisplay or Lunar license, and you'd like to chip in toward keeping Crisp signed and notarized, there's:
-
-- [GitHub Sponsors](https://github.com/sponsors/didriksg)
-- [Ko-fi](https://ko-fi.com/didriksg)
-- [爱发电 (Afdian)](https://ifdian.net/a/didriksg)
-
-Completely optional, but you'll have my heartfelt thanks.
-
-### Sponsors
-
-Thank you to the people chipping in toward keeping Crisp signed and notarized:
-
-- **Arnor Ingthorsson** ([@arnor-ingthorsson](https://github.com/arnor-ingthorsson))
-- **Barry** ([@BarryBarrywu](https://github.com/BarryBarrywu))
-- **[@kuldipmaharjan](https://github.com/kuldipmaharjan)**
-- **Volodymyr Dombrovskyi** ([@rebelvg](https://github.com/rebelvg))
-
-## Requirements
-
-- macOS 14 (Sonoma) or later; on macOS 26 the panel uses the native Liquid Glass backdrop
-
-## Permissions
-
-- **Administrator password** (one time, per monitor): needed only when you turn on smooth scaling, which installs a display override file into `/Library/Displays/Contents/Resources/Overrides` that macOS protects. Regular HiDPI scaling and everything else are password-free.
-- **Accessibility** (System Settings > Privacy & Security > Accessibility): needed only if you turn on Brightness Keys, which routes the keyboard brightness keys to other displays (follow the pointer, all connected, or a chosen subset). Without it, everything else still works; the keys just control the built-in display as usual.
-
-## Languages
-
-Crisp picks the first language in your Mac's preferred languages that it supports. To run Crisp in a different supported language than the rest of your Mac, choose it under System Settings > General > Language & Region > Applications.
-
-## Managed Macs
-
-To keep Keep Awake off on company Macs, push a configuration profile for the `com.crisp.app` domain with `crisp.disableKeepAwake` set to `true`. Crisp reads it at launch and leaves the row out of Tools. A managed value outranks the user's own preferences, so it cannot be switched back on with `defaults write`.
-
-## Automation
-
-Crisp ships with `crispctl`, a command line tool for the same controls: list displays, read and set brightness, switch Extra Brightness and HDR, change image adjustment, apply a preset, switch a monitor's input, and disconnect or reconnect a display. The Command Line Tool switch in Settings links it into `/usr/local/bin` (the Homebrew cask does this on install); it also lives inside the app at `Crisp.app/Contents/MacOS/crispctl`. Crisp must be running.
+Before opening the fork, disable upstream automatic updates so they cannot replace your patched build:
 
 ```sh
-crispctl display list                  # JSON, with each display's id and uuid
-crispctl brightness set <display> 40
-crispctl display toggle <display>      # for a KVM desk or a button
-crispctl preset apply Night
+defaults write com.crisp.app SUEnableAutomaticChecks -bool false
+defaults write com.crisp.app SUAutomaticallyUpdate -bool false
+open -a Crisp
 ```
 
-The same controls are actions in the Shortcuts app: Apply Crisp Preset, Set and Get Display Brightness, Set Extra Brightness, Set Display HDR, Set Display Input, Disconnect and Reconnect Display, and Set and Reset Image Adjustment. A Time of Day automation that runs Apply Crisp Preset switches your displays between a day and a night setup.
+The build is not notarized; macOS may require **Open Anyway** in System Settings → Privacy & Security. Brightness keys need Accessibility access. An ad-hoc rebuild can require renewing that permission. Settings are shared with the original app because the bundle ID is unchanged.
 
-`crispctl help` lists every command, and `--help` on any command gives its details. To let an AI agent drive it, `crispctl skill install claude` or `crispctl skill install codex` adds a skill for Claude Code or Codex; for another agent, `crispctl skill show` prints it. Run the install again after updating Crisp.
+## Update
 
-## Building
+Review and merge wanted upstream changes into this fork, then rebuild. To get this fork's already-reviewed updates and replace an existing installation on Apple silicon:
 
 ```sh
-brew install xcodegen
-xcodegen generate   # generates Crisp.xcodeproj from project.yml
-open Crisp.xcodeproj
+git pull --ff-only
+./dev.sh
 ```
 
-For a distributable DMG (plain swiftc, plus Xcode for the Shortcuts actions) and the fast edit-compile-run dev loop (Command Line Tools only), see [docs/BUILDING.md](docs/BUILDING.md).
+`dev.sh` rebuilds, replaces `/Applications/Crisp.app` and relaunches it. It keeps upstream automatic updates disabled. On Intel, repeat `make build` and replace the app from the DMG. Installing an official Crisp release replaces the personal patches.
 
-## Contributing
+## Development
 
-Issues and pull requests are welcome. Found a bug, want a feature, or have a display Crisp doesn't handle well? [Open an issue](https://github.com/didriksg/Crisp/issues) or start a [discussion](https://github.com/didriksg/Crisp/discussions). PRs are just as welcome, whether it's a fix, a feature, or a new translation.
+`bash scripts/check-maintenance.sh` runs the focused fork checks. `make check` runs the broader upstream checks and needs Xcode, XcodeGen and SwiftLint. See [build instructions](docs/BUILDING.md) and [fork verification notes](docs/dell-workarounds.md#audit-and-reproducible-checks) for their limits.
 
-## Origin
+## Credits and license
 
-Crisp began as a fork of [FreeDisplay](https://github.com/huberdf/FreeDisplay) and has since been substantially rewritten: a custom panel architecture, native controls throughout, a reworked brightness pipeline, and a full redesign. Thanks to FreeDisplay for the foundation and the spirit: free display management for everyone.
-
-## License
-
-[MIT](LICENSE). Portions derived from FreeDisplay remain available under its MIT terms, reproduced in [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md).
+[MIT](LICENSE). This fork builds on [Crisp](https://github.com/didriksg/Crisp), which began as a fork of [FreeDisplay](https://github.com/huberdf/FreeDisplay). Original notices are retained in [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md).
