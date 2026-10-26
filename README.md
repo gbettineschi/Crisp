@@ -20,37 +20,39 @@ The locally exercised setup was an M1 Pro and Dell P2425H at 2304 × 1296 logica
 
 ## Install this fork
 
-Requires **macOS 14+**, full **Xcode with a macOS 26+ SDK**, and a matching Swift 6 compiler. There is no prebuilt release of this fork yet. `brew install --cask crisp` installs upstream.
+Requires **macOS 14+**. The personal release is universal for Apple silicon and Intel.
+
+```sh
+brew tap gbettineschi/tap
+brew install --cask gbettineschi/tap/crisp-personal
+```
+
+Or download `Crisp-personal.zip` from [this fork's releases](https://github.com/gbettineschi/Crisp/releases). Quit Crisp before replacing the app. Turn off upstream automatic updates in an existing copy before switching; the packaged fork disables the upstream feed so updates come through this tap.
+
+The build is ad-hoc signed and not notarized; macOS may require **Open Anyway** in Privacy & Security. Brightness keys need Accessibility access, which can require renewed approval after an update. Preferences are shared with upstream because the bundle ID is unchanged. Keep app data when changing installations. `brew install --cask crisp` installs upstream.
+
+## Update
+
+```sh
+brew update
+brew upgrade --cask gbettineschi/tap/crisp-personal
+```
+
+Official changes must be reviewed and merged into this fork before releasing. They are not merged automatically. Homebrew does not create a background update schedule.
+
+## Build and release
+
+Source builds require full Xcode with a macOS 26+ SDK and a matching Swift 6 compiler.
 
 ```sh
 git clone https://github.com/gbettineschi/Crisp.git
 cd Crisp
-make build
-open Crisp.dmg
+bash scripts/package-personal.sh v1.7.1
 ```
 
-`make build` creates an ad-hoc signed, universal Apple silicon/Intel app. Quit any running Crisp, then drag the app from the disk image into Applications, replacing the existing copy.
+Output: `dist/Crisp-personal.zip`. This builds without installing or launching the app. The upstream `make build` path retains its upstream Sparkle configuration; use the personal packaging script for this fork.
 
-Before opening the fork, disable upstream automatic updates so they cannot replace your patched build:
-
-```sh
-defaults write com.crisp.app SUEnableAutomaticChecks -bool false
-defaults write com.crisp.app SUAutomaticallyUpdate -bool false
-open -a Crisp
-```
-
-The build is not notarized; macOS may require **Open Anyway** in System Settings → Privacy & Security. Brightness keys need Accessibility access. An ad-hoc rebuild can require renewing that permission. Settings are shared with the original app because the bundle ID is unchanged.
-
-## Update
-
-Review and merge wanted upstream changes into this fork, then rebuild. To get this fork's already-reviewed updates and replace an existing installation on Apple silicon:
-
-```sh
-git pull --ff-only
-./dev.sh
-```
-
-`dev.sh` rebuilds, replaces `/Applications/Crisp.app` and relaunches it. It keeps upstream automatic updates disabled. On Intel, repeat `make build` and replace the app from the DMG. Installing an official Crisp release replaces the personal patches.
+To release, commit and push reviewed source to this fork, then tag it `vX.Y.Z` and push the tag. **Release personal Mac build** packages the universal app, publishes the ZIP and checksum, and updates [the shared tap](https://github.com/gbettineschi/homebrew-tap) automatically. No Apple signing secrets are needed. `TAP_DEPLOY_KEY` grants write access only to that tap. To retry just the catalog, run **Update Homebrew tap** with the already published tag. Publish a new version instead of replacing an existing asset.
 
 ## Development
 
