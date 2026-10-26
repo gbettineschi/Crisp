@@ -56,6 +56,8 @@ Output: `dist/Crisp-personal.zip`. This builds without installing or launching t
 
 To release, commit and push reviewed source to this fork, then tag it `vX.Y.Z` and push the tag. **Release personal Mac build** packages the universal app, publishes the ZIP and checksum, and updates [the shared tap](https://github.com/gbettineschi/homebrew-tap) automatically. No Apple signing secrets are needed. `TAP_DEPLOY_KEY` grants write access only to that tap. To retry just the catalog, run **Update Homebrew tap** with the already published tag. Publish a new version instead of replacing an existing asset.
 
+Routine CI tests and builds without uploading installers. Tagged releases publish downloads directly to GitHub Releases; no duplicate Actions installer artifact is kept.
+
 ## Development
 
 `bash scripts/check-maintenance.sh` runs the focused fork checks. `make check` runs the broader upstream checks and needs Xcode, XcodeGen and SwiftLint. See [build instructions](docs/BUILDING.md) and [fork verification notes](docs/dell-workarounds.md#audit-and-reproducible-checks) for their limits.
